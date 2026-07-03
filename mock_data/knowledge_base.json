@@ -1,0 +1,37 @@
+[
+  {
+    "id": "KB-001",
+    "title": "FinServe Database Performance Guidelines",
+    "source": "confluence/engineering/database-guidelines",
+    "content": "All database tables with more than 100,000 rows must have indexes on columns used in WHERE clauses, JOIN conditions, and ORDER BY clauses. Composite indexes should be created when queries filter on multiple columns together. The most selective column should be first in a composite index. Missing indexes are the most common cause of production latency incidents at FinServe. All migrations that add new columns must include a performance review step to assess whether indexes are required. Use EXPLAIN ANALYZE to verify query plans before deploying migrations to production. The pg_stat_statements extension is enabled on all production databases and provides query performance data accessible via the CloudWatch SearchAPI dashboard.",
+    "tags": ["database", "performance", "indexes", "guidelines"]
+  },
+  {
+    "id": "KB-002",
+    "title": "Redis Connection Management Best Practices",
+    "source": "confluence/engineering/redis-best-practices",
+    "content": "All Redis connections must be managed using context managers to ensure proper release. Never acquire a Redis connection without a corresponding release in a finally block or context manager exit. Connection pool size should be set to 2x the number of application threads. Connection pool utilisation above 80% should trigger an alert — this is an early warning sign of a connection leak. Use redis-cli info clients to check current connection count. Connection leaks typically manifest as gradual pool exhaustion over 15-30 minutes. The fastest resolution for a connection leak is to roll back the offending deployment while the permanent fix is implemented.",
+    "tags": ["redis", "connections", "best-practices", "guidelines"]
+  },
+  {
+    "id": "KB-003",
+    "title": "Circuit Breaker Pattern Implementation Guide",
+    "source": "confluence/engineering/circuit-breaker-guide",
+    "content": "All external service integrations at FinServe must implement the circuit breaker pattern. A circuit breaker has three states: CLOSED (normal operation), OPEN (failing fast, not calling external service), and HALF-OPEN (testing recovery). Configure circuit breakers with a 5 second timeout for payment gateways and 10 seconds for analytics services. When a circuit breaker opens, the calling service must have a defined fallback behaviour — for payments this means queuing transactions for later processing. The circuit breaker status endpoint is available at /internal/circuit-breaker/status for all services. Stripe outages have historically lasted 20-90 minutes. Our circuit breaker queue can hold 10,000 transactions safely.",
+    "tags": ["circuit-breaker", "resilience", "external-services", "stripe", "payments"]
+  },
+  {
+    "id": "KB-004",
+    "title": "Certificate Management and Renewal Process",
+    "source": "confluence/security/certificate-management",
+    "content": "All TLS certificates at FinServe are managed by cert-manager running in the production Kubernetes cluster. Certificates auto-renew 30 days before expiry. Alert thresholds are set at 30 days and 7 days before expiry. Manual certificate renewal should never be required for any production certificate. If cert-manager fails to renew a certificate, the root cause is typically either an ACME challenge failure (check DNS configuration) or insufficient permissions for the cert-manager service account. Certificate expiry at exactly midnight UTC indicates the certificate was originally issued at midnight and was not auto-renewed. Check cert-manager logs first: kubectl logs -n cert-manager -l app=cert-manager --since=24h.",
+    "tags": ["certificates", "tls", "cert-manager", "security", "auth-service"]
+  },
+  {
+    "id": "KB-005",
+    "title": "On-Call Incident Response Process",
+    "source": "confluence/engineering/incident-response-process",
+    "content": "Severity classification at FinServe: P1 — complete service unavailability or data integrity issue, respond within 5 minutes, resolve within 60 minutes. P2 — significant degradation affecting more than 20% of users, respond within 15 minutes, resolve within 4 hours. P3 — minor degradation or single user affected, respond within 2 hours during business hours. All P1 incidents require a post-mortem within 48 hours using the post-mortem template in Confluence. The incident JIRA project uses the INC prefix. Always check the similar past incidents before starting investigation — 60% of incidents are repeat patterns. The on-call rotation is managed in PagerDuty. Primary on-call is responsible for triage and first response. Secondary on-call escalation after 15 minutes without resolution.",
+    "tags": ["incident-response", "on-call", "process", "severity", "guidelines"]
+  }
+]

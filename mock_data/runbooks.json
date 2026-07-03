@@ -1,0 +1,153 @@
+[
+  {
+    "id": "RB-001",
+    "title": "Search API Degradation Runbook",
+    "service": "search-api",
+    "last_updated": "2026-04-20",
+    "owner": "Platform Engineering",
+    "applicable_incidents": ["latency", "error_rate", "availability"],
+    "sections": [
+      {
+        "name": "Immediate Triage",
+        "steps": [
+          "Check Search API health endpoint: curl https://api.finserve.com/search/health",
+          "Check CloudWatch dashboard: go to SearchAPI-Production dashboard",
+          "Identify which metric is breached: latency, error_rate, or availability",
+          "Check if issue is gradual (latency creep) or sudden (deployment related)"
+        ]
+      },
+      {
+        "name": "Latency Investigation",
+        "steps": [
+          "Run slow query log: SELECT * FROM pg_stat_statements ORDER BY mean_exec_time DESC LIMIT 20",
+          "Check for missing indexes: SELECT schemaname, tablename, attname FROM pg_stats WHERE n_distinct < 0 AND tablename IN ('documents', 'tags')",
+          "Check database connection count: SELECT count(*) FROM pg_stat_activity WHERE datname='searchdb'",
+          "Check Redis cache hit rate in CloudWatch: SearchAPI/CacheHitRate metric",
+          "Check if ORM query count is elevated: look for N+1 patterns in APM",
+          "Run EXPLAIN ANALYZE on the top slow query identified in step 1"
+        ]
+      },
+      {
+        "name": "Error Rate Investigation",
+        "steps": [
+          "Check error logs: kubectl logs -l app=search-api --since=30m | grep ERROR",
+          "Check Redis connectivity: redis-cli -h redis.finserve.internal ping",
+          "Check if Redis connection pool is exhausted: redis-cli info clients | grep connected_clients",
+          "Check recent deployments: git log --oneline -10 on search-api repo",
+          "If connection leak suspected: check connection count trend over last 30 minutes"
+        ]
+      },
+      {
+        "name": "Availability Investigation",
+        "steps": [
+          "Check pod status: kubectl get pods -l app=search-api",
+          "Check pod logs for OOM kills: kubectl describe pod <pod-name> | grep OOMKilled",
+          "Check certificate expiry: openssl s_client -connect api.finserve.com:443 | openssl x509 -noout -dates",
+          "Check database connectivity from pod: kubectl exec -it <pod-name> -- nc -zv db.finserve.internal 5432"
+        ]
+      },
+      {
+        "name": "Escalation",
+        "steps": [
+          "If not resolved in 30 minutes: page on-call database team",
+          "If data integrity suspected: immediately disable search and page security team",
+          "If revenue impact > $10k estimated: notify VP Engineering",
+          "Create incident JIRA ticket with INC prefix and link to this runbook"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "RB-002",
+    "title": "Payment Processing Incident Runbook",
+    "service": "payment-processing",
+    "last_updated": "2026-03-15",
+    "owner": "Payments Engineering",
+    "applicable_incidents": ["latency", "error_rate", "availability"],
+    "sections": [
+      {
+        "name": "Immediate Triage",
+        "steps": [
+          "Check payment health: curl https://api.finserve.com/payments/health",
+          "Check Stripe status page: https://status.stripe.com",
+          "Check failed transaction count in CloudWatch: Payments/FailedTransactions",
+          "Determine if failures are Stripe-side or internal"
+        ]
+      },
+      {
+        "name": "Third Party Gateway Issues",
+        "steps": [
+          "Check circuit breaker status: GET /internal/circuit-breaker/status",
+          "If circuit breaker OPEN: payments are queued, check queue depth",
+          "Check Stripe dashboard for their incident status",
+          "Monitor queue drain when Stripe recovers: queue should process automatically",
+          "If queue not draining after Stripe recovery: manually trigger queue processor"
+        ]
+      },
+      {
+        "name": "Database Issues",
+        "steps": [
+          "Check connection pool utilisation: GET /internal/metrics | grep db_pool",
+          "Check if batch jobs running: SELECT * FROM pg_stat_activity WHERE application_name LIKE 'batch%'",
+          "If batch job consuming connections: kill batch job with SELECT pg_terminate_backend(pid)",
+          "Check connection pool size vs active connections",
+          "Consider increasing pool size temporarily: update PAYMENT_DB_POOL_SIZE env var"
+        ]
+      },
+      {
+        "name": "Escalation",
+        "steps": [
+          "If failed transactions > 1000: immediately notify payments team lead",
+          "If customer data affected: page security team",
+          "All P1 payment incidents require post-mortem within 48 hours",
+          "Notify finance team of estimated transaction loss"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "RB-003",
+    "title": "Auth Service Incident Runbook",
+    "service": "auth-service",
+    "last_updated": "2026-02-01",
+    "owner": "Security Engineering",
+    "applicable_incidents": ["availability", "latency", "token-validation"],
+    "sections": [
+      {
+        "name": "Immediate Triage",
+        "steps": [
+          "Check auth health: curl https://api.finserve.com/auth/health",
+          "Check token validation error rate in CloudWatch: Auth/TokenValidationErrors",
+          "Check certificate expiry: openssl s_client -connect auth.finserve.com:443 | openssl x509 -noout -dates",
+          "Check memory usage: kubectl top pods -l app=auth-service"
+        ]
+      },
+      {
+        "name": "Certificate Issues",
+        "steps": [
+          "Check all certificates: kubectl get certificates -n production",
+          "Check cert-manager logs: kubectl logs -n cert-manager -l app=cert-manager",
+          "If certificate expired: kubectl delete certificate auth-tls && kubectl apply -f auth-tls-cert.yaml",
+          "Verify renewal: kubectl describe certificate auth-tls | grep Conditions"
+        ]
+      },
+      {
+        "name": "Memory Issues",
+        "steps": [
+          "Check cache size: GET /internal/cache/stats",
+          "If cache size > 40000 sessions: manually trigger eviction via POST /internal/cache/evict",
+          "Check memory trend over last 2 hours in CloudWatch",
+          "If OOM imminent: rolling restart kubectl rollout restart deployment/auth-service"
+        ]
+      },
+      {
+        "name": "Escalation",
+        "steps": [
+          "Auth P1s affect ALL services — escalate immediately to all service teams",
+          "Page security team for any token validation anomalies",
+          "If suspected breach: follow security incident playbook SIR-001"
+        ]
+      }
+    ]
+  }
+]
